@@ -8,6 +8,8 @@ from threading import Thread
 import os
 import signal
 
+ENCODING = 'UTF-8'
+
 
 class Board(Thread):
     def __init__(self, port, speed, parent, callback):
@@ -47,10 +49,14 @@ class Board(Thread):
         self.sent_bin = Text(self.frame, width = Nsent, height = 4)
         self.sent_bin.grid(row = 3, column = 0, padx = 5, pady = 5, sticky = 'nswe', columnspan = 2)
         self.sent_bin.config(stat = 'disabled')
+        self.sent_bin.bind('<Button-3>', self.clkright_sent)
+        self.sent_bin.bind('<Double-Button-1>', self.send_data)
 
         self.sent_str = Text(self.frame, width = Nsent, height = 4)
         self.sent_str.grid(row = 1, column = 0, padx = 5, pady = 5, sticky = 'nswe', columnspan = 2)
         self.sent_str.config(stat = 'disabled')
+        self.sent_str.bind('<Button-3>', self.clkright_sent)
+        self.sent_str.bind('<Double-Button-1>', self.send_data)
 
         self.code = Text(self.frame, width = 80, font = ('Consolas', 8), wrap = 'none')
         self.code.grid(row = 0, column = 3, padx = 5, pady = 5, sticky = 'nswe', rowspan = 5)
@@ -61,20 +67,67 @@ class Board(Thread):
         self.outstr = Text(self.frame, height = 10, width = Nrecv)
         self.outstr.grid(row = 0, column = 2, padx = 5, pady = 5, sticky = 'nswe', rowspan = 2)
         self.outstr.config(stat = 'disabled')
+        self.outstr.bind('<Button-3>', self.clkright_out)
 
         self.outbin = Text(self.frame, height = 10, width = Nrecv)
         self.outbin.grid(row = 2, column = 2, padx = 5, pady = 5, sticky = 'nswe', rowspan = 2)
         self.outbin.config(stat = 'disabled')
+        self.outbin.bind('<Button-3>', self.clkright_out)
 
         close = ttk.Button(self.frame, text = 'Fermer', command = self.close)
         close.grid(row = 4, column = 0, columnspan = 3, padx = 5, pady = 5, sticky = 'nswe')
 
         self.start()
 
+    def clkright_out(self, evt):
+        popup = Menu(evt.widget, tearoff = 0)
+        popup.add_command(label = 'Exporter', command = self._save_data)
+        popup.add_command(label = 'Exporter et effacer', command = self.save_data_clear)
+        popup.tk_popup(evt.x_root, evt.y_root)
+
+    def clkright_sent(self, evt):
+        popup = Menu(evt.widget, tearoff = 0)
+        popup.add_command(label = 'Importer', command = self.send_data)
+        popup.tk_popup(evt.x_root, evt.y_root)
+
+    def _save_data(self, evt = None):
+        path = asksaveasfilename(title = 'Enregistrer les données', filetypes = [('Fichiers données', '*.bin')])
+        if not path:
+            return True
+
+        data = self.outstr.get('0.0', 'end')
+        data = data.rstrip('\n')
+        f = open(path, 'w', encoding = ENCODING)
+        f.write(data)
+        f.close()
+
+    save_data_nocleaer = _save_data
+
+    def save_data_clear(self, evt = None):
+        if self._save_data():
+            return
+
+        self.outbin.config(stat = 'normal')
+        self.outstr.config(stat = 'normal')
+        self.outbin.delete('0.0', 'end')
+        self.outstr.delete('0.0', 'end')
+        self.outbin.config(stat = 'disabled')
+        self.outstr.config(stat = 'disabled')
+
+    def send_data(self, evt = None):
+        path = askopenfilename(title = 'Ouvrir et envoyer un fichier', filetypes = [('Fichiers données', '*.bin')])
+        if not path:
+            return
+
+        f = open(path, 'rb')
+        r = f.read()
+        f.close()
+        self.write(r)
+
     def open_code(self, evt = None):
         path = askopenfilename(title = "Ouvrir un code assicoé", filetypes = [('Fichiers Arduino', '*.ino *.h'), ('Tous les fichiers', '*.*')])
         if path:
-            f = open(path, 'r', encoding = 'utf-8')
+            f = open(path, 'r', encoding = ENCODING)
             r = f.read()
             f.close()
             self.code.config(stat = 'normal')
@@ -108,23 +161,36 @@ class Board(Thread):
         data = list(map(lambda v: int(v), data))
         self.write(bytes(data))
         self.sent_bin.config(stat = 'normal')
+        self.sent_str.config(stat = 'normal')
         for c in data:
             self.n_bin += 1
             self.sent_bin.insert('end', self.format_name(c, hx = False, leng = 3))
+            self.sent_str.insert('end', chr(c))
             if self.n_bin % 6 == 0:
                 self.sent_bin.insert('end', '\n')
             else:
                 self.sent_bin.insert('end', ' ')
         
         self.sent_bin.config(stat = 'disabled')
+        self.sent_str.config(stat = 'disabled')
 
     def rtn_msg(self, evt = None):
         data = self.msg.get()
         self.msg.delete('0', 'end')
-        self.write(data.encode())
+        self.write(data.encode(ENCODING))
+        self.sent_bin.config(stat = 'normal')
         self.sent_str.config(stat = 'normal')
         self.sent_str.insert('end', data + '\n')
+        for c in data:
+            self.n_bin += 1
+            self.sent_bin.insert('end', self.format_name(ord(c), hx = False, leng = 3))
+            if self.n_bin % 6 == 0:
+                self.sent_bin.insert('end', '\n')
+            else:
+                self.sent_bin.insert('end', ' ')
+
         self.sent_str.config(stat = 'disabled')
+        self.sent_bin.config(stat = 'disabled')
 
     def write(self, content):
         try:
@@ -151,7 +217,7 @@ class Board(Thread):
                 self.outstr.config(stat = 'normal')
                 self.outbin.config(stat = 'normal')
                 try:
-                    self.outstr.insert('end', data.decode())
+                    self.outstr.insert('end', data.decode(ENCODING))
                 except:
                     self.outstr.insert('end', '?')
 
