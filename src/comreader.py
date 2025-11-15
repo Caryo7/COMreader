@@ -8,13 +8,15 @@ from threading import Thread
 import os
 import signal
 
-ENCODING = 'UTF-8'
-
+ENCODING = 'utf-8'
+ERR_BUFFER_SIZE = 10
 
 class Board(Thread):
     def __init__(self, port, speed, parent, callback):
         super().__init__()
         self.callback = callback
+        self.buffer = b''
+        self.errbuf = b''
 
         self.running = False
         if port:
@@ -83,6 +85,8 @@ class Board(Thread):
         popup = Menu(evt.widget, tearoff = 0)
         popup.add_command(label = 'Exporter', command = self._save_data)
         popup.add_command(label = 'Exporter et effacer', command = self.save_data_clear)
+        popup.add_separator()
+        popup.add_command(label = 'Effacer', command = self.clear)
         popup.tk_popup(evt.x_root, evt.y_root)
 
     def clkright_sent(self, evt):
@@ -95,24 +99,26 @@ class Board(Thread):
         if not path:
             return True
 
-        data = self.outstr.get('0.0', 'end')
-        data = data.rstrip('\n')
-        f = open(path, 'w', encoding = ENCODING)
-        f.write(data)
+        f = open(path, 'wb')
+        f.write(self.buffer)
         f.close()
 
     save_data_nocleaer = _save_data
 
-    def save_data_clear(self, evt = None):
-        if self._save_data():
-            return
-
+    def clear(self, evt = None):
         self.outbin.config(stat = 'normal')
         self.outstr.config(stat = 'normal')
         self.outbin.delete('0.0', 'end')
         self.outstr.delete('0.0', 'end')
         self.outbin.config(stat = 'disabled')
         self.outstr.config(stat = 'disabled')
+        self.buffer = b''
+
+    def save_data_clear(self, evt = None):
+        if self._save_data():
+            return
+
+        self.clear()
 
     def send_data(self, evt = None):
         path = askopenfilename(title = 'Ouvrir et envoyer un fichier', filetypes = [('Fichiers données', '*.bin')])
@@ -214,18 +220,27 @@ class Board(Thread):
             if self.s.in_waiting:
                 n += 1
                 data = self.s.read()
+                self.buffer += data
                 self.outstr.config(stat = 'normal')
                 self.outbin.config(stat = 'normal')
                 try:
-                    self.outstr.insert('end', data.decode(ENCODING))
+                    self.outstr.insert('end', (self.errbuf + data).decode(ENCODING))
+                    self.errbuf = b''
                 except:
-                    self.outstr.insert('end', '?')
+                    if len(self.errbuf) > ERR_BUFFER_SIZE:
+                        self.outstr.insert('end', '?' * len(self.errbuf))
+                        self.errbuf = b''
+                    else:
+                        self.errbuf += data
 
                 self.outbin.insert('end', self.format_name(data[0]))
                 if n % 16 == 0:
                     self.outbin.insert('end', '\n')
                 else:
                     self.outbin.insert('end', ' ')
+
+                self.outbin.see('end')
+                self.outstr.see('end')
 
                 self.outstr.config(stat = 'disabled')
                 self.outbin.config(stat = 'disabled')
@@ -286,6 +301,10 @@ class Application:
         self.master.columnconfigure(0, weight=1)
         self.master.rowconfigure(0, weight=1)
         self.master.minsize(300, 200)
+
+        mb = Menu(self.master)
+        self.master['menu'] = mb
+        mb.add_command(label = 'Ouvrir un port', command = self.open_port)
 
         self.frames = ttk.Notebook(self.master)
         self.frames.grid(row = 0, column = 0, padx = 5, pady = 5, sticky = 'nswe')
