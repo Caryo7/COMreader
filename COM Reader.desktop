@@ -1,0 +1,17 @@
+[Desktop Entry]
+Comment[fr_FR]=
+Comment=
+Exec=/home/benoit/Documents/GitHub/COMreader/venv/bin/python comreader.py
+GenericName[fr_FR]=
+GenericName=
+Icon=arduino
+MimeType=
+Name[fr_FR]=COM Reader
+Name=COM Reader
+Path=/home/benoit/Documents/GitHub/COMreader/src
+StartupNotify=true
+Terminal=false
+TerminalOptions=
+Type=Application
+X-KDE-SubstituteUID=false
+X-KDE-Username=
